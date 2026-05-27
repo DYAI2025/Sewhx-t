@@ -1,247 +1,139 @@
 import React, { useState, useEffect } from 'react';
-import { AudioLines, MessagesSquare, RefreshCw, Edit3, Check, UserPlus, Sparkles, SlidersHorizontal, Layers, CheckCircle } from 'lucide-react';
+import { AudioLines, FileText, Check, Download, AlertCircle, FileSpreadsheet, MessagesSquare, ChevronRight, HardDriveDownload } from 'lucide-react';
 import SoftCard from './ui/SoftCard';
 import SoftButton from './ui/SoftButton';
-import SoftChip from './ui/SoftChip';
 import StatusPill from './ui/StatusPill';
-import { AudioFileItem, ChatMessage, MergedChatDocument, ChatSection } from '../types';
-import { mergeChatAndAudio, transcribeAudio } from '../lib/mockServices';
+import { apiClient } from '../lib/apiClient';
 
 type MergePreviewStepProps = {
-  audioItems: AudioFileItem[];
-  chatMessages: ChatMessage[];
-  setAudioItems: (items: AudioFileItem[]) => void;
-  mergedDocument: MergedChatDocument | null;
-  setMergedDocument: (doc: MergedChatDocument | null) => void;
+  sessionId: string;
+  audioItems: any[];
+  chatMessages: any[];
+  mergedDocument: any;
+  setMergedDocument: (doc: any) => void;
   onPrev: () => void;
   onNext: () => void;
 };
 
 export default function MergePreviewStep({
+  sessionId,
   audioItems,
   chatMessages,
-  setAudioItems,
   mergedDocument,
   setMergedDocument,
   onPrev,
-  onNext,
+  onNext
 }: MergePreviewStepProps) {
-  const [transcribing, setTranscribing] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
-  const [editText, setEditText] = useState("");
+  const [isMerging, setIsMerging] = useState(false);
+  const [downloadFormat, setDownloadFormat] = useState<"json" | "txt" | "markdown" | "html">("html");
 
-  // Auto-Start Mock Transcription on step mount if any audio is queued/ready or needs review
-  useEffect(() => {
-    const checkNeedsTranscribe = audioItems.some(item => item.status === 'ready' || item.status === 'needs_review');
-    if (checkNeedsTranscribe && !mergedDocument) {
-      setTranscribing(true);
-      setProgress(0);
-    } else {
-      // already done or no audios
-      if (!mergedDocument) {
-        setMergedDocument(mergeChatAndAudio(chatMessages, audioItems));
-      }
+  const buildMergedDocument = async () => {
+    setIsMerging(true);
+    try {
+      const doc = await apiClient.mergeSessionAndCreateDoc(sessionId, chatMessages, audioItems);
+      setMergedDocument(doc);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsMerging(false);
     }
-  }, []);
+  };
 
-  // Transcription animation timer
   useEffect(() => {
-    if (!transcribing) return;
-    
-    const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setTranscribing(false);
-          // Complete audio transcription and merge
-          const completedAudios = audioItems.map(item => ({
-            ...item,
-            status: 'transcribed' as const,
-            transcript: item.transcript || transcribeAudio(item),
-          }));
-          setAudioItems(completedAudios);
-          setMergedDocument(mergeChatAndAudio(chatMessages, completedAudios));
-          return 100;
-        }
-        return prev + 25; // instant stepping simulation
-      });
-    }, 600);
+    if (!mergedDocument && chatMessages.length > 0) {
+      buildMergedDocument();
+    }
+  }, [sessionId, chatMessages, audioItems]);
 
-    return () => clearInterval(interval);
-  }, [transcribing]);
-
-  // Handle speaker reassignment for a merged message
-  const handleSpeakerChange = (msgId: string, newSender: string) => {
+  const handleDownloadRaw = async () => {
     if (!mergedDocument) return;
-    const updatedMessages = mergedDocument.messages.map(m => {
-      if (m.id === msgId) {
-        return { ...m, sender: newSender };
-      }
-      return m;
-    });
-    setMergedDocument({
-      ...mergedDocument,
-      messages: updatedMessages,
-      participants: Array.from(new Set(updatedMessages.map(m => m.sender)))
-    });
-  };
-
-  // Handle live edit of audio transcripts
-  const startEditing = (msgId: string, text: string) => {
-    setEditingMessageId(msgId);
-    setEditText(text);
-  };
-
-  const saveEdit = (msgId: string) => {
-    if (!mergedDocument) return;
-    setMergedDocument({
-      ...mergedDocument,
-      messages: mergedDocument.messages.map(m => {
-        if (m.id === msgId) {
-          return { ...m, text: editText };
-        }
-        return m;
-      })
-    });
-    setEditingMessageId(null);
+    try {
+      const fileData = await apiClient.downloadRawMergedDoc(mergedDocument.id, mergedDocument, downloadFormat);
+      
+      // File Save Helper
+      const blob = new Blob([fileData.content], { type: fileData.mimeType });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", fileData.fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode?.removeChild(link);
+    } catch (e) {
+      console.error("Downloader failed: ", e);
+    }
   };
 
   return (
-    <div className="space-y-8 animate-fadeIn">
-      {/* Title */}
-      <div>
-        <h2 className="text-2xl font-bold text-[var(--color-text-primary)]">Transkription & Chronologischer Merge</h2>
-        <p className="text-xs text-[var(--color-text-secondary)]">Prüfe die Transkripte und weise den Teilnehmern die korrekten Redepartnergrenzen zu.</p>
+    <div className="space-y-8 animate-fadeIn" id="merge-preview-container">
+      {/* Informative Step Banner */}
+      <div className="bg-sky-50 border border-sky-100 rounded-[32px] p-6 clay-card flex items-start space-x-4">
+        <div className="p-2.5 bg-sky-105 rounded-xl text-sky-700">
+          <HardDriveDownload size={22} />
+        </div>
+        <div>
+          <h4 className="font-bold text-[var(--color-text-primary)] mb-1">Produkt-Prinzip: Eigenständiger Rohdaten-Export</h4>
+          <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed">
+            Der rekonstruierte Original-Chat inklusive transkribierter Sprachnachrichten kann hier jederzeit als Rohprotokoll heruntergeladen werden. Eine psycholinguistische Segmentierung oder semiotische Analyse ist optional und kann als nachgelagerter Erkenntnisschritt durchgeführt werden.
+          </p>
+        </div>
       </div>
 
-      {/* Transcription Progress Box if running */}
-      {transcribing && (
-        <SoftCard className="p-8 border-cyan-100 text-center space-y-4">
-          <div className="relative w-20 h-20 mx-auto">
-            <RefreshCw className="text-[var(--color-primary)] animate-spin absolute inset-0 m-auto" size={32} />
-          </div>
-          <h3 className="text-lg font-bold">Flüstersynthese Transkription...</h3>
-          <p className="text-xs text-[var(--color-text-secondary)] max-w-sm mx-auto">
-            Whisper-Engine wandelt Audio m4a/opus Tonfrequenzen in strukturierten Fließtext um.
-          </p>
-          <div className="w-full max-w-md mx-auto bg-gray-100 rounded-full h-2 overflow-hidden shadow-inner">
-            <div 
-              className="bg-[var(--color-primary)] h-2 transition-all duration-300"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          <span className="text-xs font-bold text-[var(--color-primary)]">{progress}% abgeschlossen</span>
-        </SoftCard>
+      {isMerging && (
+        <div className="p-12 text-center space-y-4">
+          <div className="w-12 h-12 border-4 border-slate-100 border-t-[var(--color-primary)] rounded-full animate-spin mx-auto" />
+          <p className="font-bold text-sm text-[var(--color-text-primary)]">Führe Zeitstrahl zusammen...</p>
+        </div>
       )}
 
-      {/* Main merged document view */}
-      {!transcribing && mergedDocument && (
+      {mergedDocument && !isMerging && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           
-          {/* Conversation Tree/Chat Flow */}
+          {/* Main Conversational Thread with Source Tags */}
           <div className="lg:col-span-8 space-y-6">
             <h3 className="text-sm font-bold text-[var(--color-text-secondary)] uppercase tracking-wider flex items-center">
               <MessagesSquare className="mr-2 text-[var(--color-primary)]" size={16} />
-              Chronologischer Verlaufsmerge
+              Reconstructed Conversation Thread
             </h3>
 
-            <div className="space-y-8">
-              {mergedDocument.messages.map((msg, index) => {
+            <div className="space-y-6 max-h-[500px] overflow-y-auto pr-2 bg-gray-50/40 p-6 rounded-[32px] border border-gray-100">
+              {mergedDocument.messages.map((msg: any) => {
                 const isAudio = msg.type === "audio_transcript";
-                const isZoe = msg.sender === "Zoe";
-                const isEditing = editingMessageId === msg.id;
-
+                const isZoe = msg.sender.toLowerCase().includes("zoe");
+                const sourceFileName = msg.source?.fileName || "Unknown File";
+                
                 return (
-                  <div 
-                    key={msg.id} 
-                    className={`flex items-start space-x-3 transition-all duration-200 ${
-                      isAudio ? "bg-cyan-50/40 p-5 rounded-[28px] border border-cyan-100/50" : ""
-                    }`}
-                  >
-                    {/* Speaker Circular Badge */}
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black text-xs shrink-0 shadow-sm ${
-                      isZoe ? "bg-[#e1fbfc] text-cyan-600" : "bg-amber-50 text-amber-600"
-                    }`}>
-                      {msg.sender.substring(0, 2).toUpperCase()}
+                  <div key={msg.id} className="space-y-1">
+                    <div className="flex items-center space-x-2 text-[10px] text-gray-400 font-mono px-2">
+                      <span className="font-semibold">{msg.sender}</span>
+                      <span>•</span>
+                      <span>Source: <strong className="text-[var(--color-primary)]">{sourceFileName}</strong></span>
                     </div>
 
-                    <div className="flex-1 space-y-1.5 overflow-hidden">
-                      <div className="flex justify-between items-center">
-                        <div className="flex items-center space-x-2">
-                          <span className="font-bold text-sm text-[var(--color-text-primary)]">
-                            {msg.sender}
+                    <div className={`p-4 rounded-3xl border transition-all duration-200 ${
+                      isAudio 
+                        ? "bg-cyan-50/50 border-cyan-100 ring-1 ring-cyan-200" 
+                        : isZoe 
+                          ? "bg-white border-slate-100 shadow-sm"
+                          : "bg-slate-50 border-slate-100"
+                    }`}>
+                      <div className="flex justify-between items-center mb-1 pb-1 border-b border-gray-100/40">
+                        {isAudio ? (
+                          <span className="text-[9px] bg-cyan-600 text-white font-bold px-1.5 py-0.5 rounded-full flex items-center">
+                            <AudioLines size={10} className="mr-1" /> AUDIO
                           </span>
-                          
-                          {isAudio ? (
-                            <span className="inline-flex items-center text-[10px] uppercase font-black bg-cyan-100 text-cyan-700 px-2 py-0.5 rounded-full">
-                              <AudioLines size={10} className="mr-1" /> Audio-Memo
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-gray-400">
-                              Chatnachricht
-                            </span>
-                          )}
-                        </div>
-
-                        <span className="text-[10px] text-[var(--color-text-secondary)]">
-                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        ) : (
+                          <span className="text-[9px] bg-neutral-100 text-neutral-600 font-bold px-1.5 py-0.5 rounded-full flex items-center">
+                            <FileText size={10} className="mr-1" /> TEXT
+                          </span>
+                        )}
+                        <span className="text-[10px] font-mono font-bold text-gray-400">
+                          {new Date(msg.timestamp).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
                         </span>
                       </div>
-
-                      {/* Message Content Bubble or Editable Transcript field */}
-                      <div className="text-sm text-[var(--color-text-primary)] leading-relaxed">
-                        {isEditing ? (
-                          <div className="space-y-3 bg-white p-3 rounded-2xl border border-gray-200">
-                            <textarea
-                              value={editText}
-                              onChange={(e) => setEditText(e.target.value)}
-                              className="w-full text-xs font-medium focus:outline-none focus:ring-1 focus:ring-[var(--color-primary)] resize-none"
-                              rows={3}
-                            />
-                            <div className="flex justify-end space-x-2">
-                              <SoftButton variant="ghost" className="px-3 py-1 text-xs" onClick={() => setEditingMessageId(null)}>Abbrechen</SoftButton>
-                              <SoftButton className="px-3 py-1 text-xs" onClick={() => saveEdit(msg.id)}>Speichern</SoftButton>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="bg-white p-4 rounded-3xl clay-card border border-white/40 shadow-sm relative group">
-                            <p className="whitespace-pre-line text-xs font-medium">{msg.text}</p>
-                            
-                            {/* Inline Tools for Audio */}
-                            {isAudio && (
-                              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1.5 bg-white/90 backdrop-blur rounded-full px-2 py-1 shadow-sm border border-gray-100">
-                                <button 
-                                  onClick={() => startEditing(msg.id, msg.text)}
-                                  className="p-1 hover:text-[var(--color-primary)] text-gray-400 font-semibold"
-                                  title="Text bearbeiten"
-                                >
-                                  <Edit3 size={12} />
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Interactive metadata/speaker switch */}
-                      {isAudio && (
-                        <div className="flex items-center space-x-3 pt-2">
-                          <span className="text-[10px] text-[var(--color-text-secondary)] flex items-center">
-                            <UserPlus size={10} className="mr-1 text-[var(--color-primary)]" />
-                            Sprecher:
-                          </span>
-                          <select
-                            value={msg.sender}
-                            onChange={(e) => handleSpeakerChange(msg.id, e.target.value)}
-                            className="bg-white text-[10px] font-bold text-gray-600 rounded-full px-2.5 py-1 border border-gray-200 outline-none focus:border-[var(--color-primary)] cursor-pointer"
-                          >
-                            <option value="Zoe">Zoe</option>
-                            <option value="Ben">Ben</option>
-                            <option value="Unbekannt">Unbekannt</option>
-                          </select>
-                        </div>
-                      )}
+                      <p className="text-xs text-[var(--color-text-primary)] leading-relaxed italic pr-2">
+                        "{msg.text}"
+                      </p>
                     </div>
                   </div>
                 );
@@ -249,57 +141,59 @@ export default function MergePreviewStep({
             </div>
           </div>
 
-          {/* Right Column: Sections & Structure */}
+          {/* Right Column: Pre-Analysis Exporter Panel */}
           <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-4">
-            <h3 className="text-sm font-bold text-[var(--color-text-secondary)] uppercase tracking-wider flex items-center">
-              <Layers className="mr-2 text-[var(--color-primary)]" size={16} />
-              Matrize & Abschnitte
+            <h3 className="text-sm font-bold text-[var(--color-text-secondary)] uppercase tracking-wider">
+              Rohdaten-Exporteur
             </h3>
 
-            <div className="space-y-4">
-              {mergedDocument.sections.map((sec, idx) => (
-                <SoftCard key={sec.id} className="p-5 space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-black uppercase tracking-wider bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
-                      Themenabschnitt {idx + 1}
-                    </span>
-                    <span className="text-[10px] text-[var(--color-text-secondary)]">
-                      {new Date(sec.startTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
+            <SoftCard className="p-6 space-y-5">
+              <div className="space-y-1.5">
+                <span className="font-bold text-xs text-[var(--color-text-primary)] block">Inhalt rekonstruiert ({mergedDocument.messages.length} Sätze)</span>
+                <p className="text-[10.5px] text-[var(--color-text-secondary)] leading-relaxed">
+                  Lade den synchronisierten Original-Faden jetzt herunter, bevor du dich für eine hermeneutische Untersuchung entscheidest.
+                </p>
+              </div>
 
-                  <h4 className="font-bold text-sm text-[var(--color-text-primary)]">{sec.title}</h4>
-                  <p className="text-xs text-[var(--color-text-secondary)] leading-relaxed">{sec.summary}</p>
-                  
-                  <div className="flex flex-wrap gap-1.5 pt-2">
-                    {sec.topicLabels?.map((label) => (
-                      <span key={label} className="text-[9px] bg-[#e1fbfc] text-[var(--color-primary)] font-extrabold px-2 py-0.5 rounded-full">
-                        #{label}
-                      </span>
-                    ))}
-                  </div>
-                </SoftCard>
-              ))}
-            </div>
+              {/* Format selection */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Export-Format</label>
+                <select
+                  value={downloadFormat}
+                  onChange={(e: any) => setDownloadFormat(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-bold text-gray-600 outline-none focus:border-[var(--color-primary)] cursor-pointer"
+                >
+                  <option value="html">HTML Report (Druckoptimiert)</option>
+                  <option value="markdown">Markdown Struktur (.md)</option>
+                  <option value="txt">Klassischer Text-Log (.txt)</option>
+                  <option value="json">Maschinenlesbares JSON (.json)</option>
+                </select>
+              </div>
 
-            <div className="p-4 rounded-2xl bg-teal-50/60 border border-teal-100 flex items-start space-x-2.5 text-xs text-teal-800">
-              <Sparkles size={16} className="text-teal-600 shrink-0 mt-0.5" />
-              <p>
-                Die Textstrukturen und Audio-Ankerpunkte wurden erfolgreich kalibriert. Klicke auf <strong>Merge bestätigen</strong> um das Dokument freizugeben.
-              </p>
+              <SoftButton onClick={handleDownloadRaw} className="w-full shadow-md flex items-center justify-center text-xs">
+                <Download size={14} className="mr-1.5" /> Rekonstruierten Chat herunterladen
+              </SoftButton>
+              
+              <div className="text-[9.5px] text-emerald-600 font-bold text-center">
+                ✔ Vollständig offline-generierbar
+              </div>
+            </SoftCard>
+
+            <div className="bg-amber-100/30 border border-amber-200/40 rounded-2xl p-4 text-[10px] text-amber-800 leading-relaxed">
+              <strong>Optionaler Folgeschritt:</strong> Sie können direkt im Anschluss fortfahren, um den Datenfaden hermeneutisch nach Beziehungen zu bewerten.
             </div>
           </div>
 
         </div>
       )}
 
-      {/* Actions */}
-      <div className="flex justify-between items-center pt-6">
-        <SoftButton variant="secondary" onClick={onPrev} disabled={transcribing}>
-          Zurück zu Mapping
+      {/* Nav Actions */}
+      <div className="flex justify-between items-center pt-4 border-t border-gray-100">
+        <SoftButton variant="secondary" onClick={onPrev}>
+          Zurück zur Transkription
         </SoftButton>
-        <SoftButton onClick={onNext} disabled={transcribing || !mergedDocument}>
-          Merge bestätigen & Weiter zur Analyse
+        <SoftButton onClick={onNext} className="shadow-md flex items-center">
+          Optionale Analyse konfigurieren <ChevronRight size={16} className="ml-1" />
         </SoftButton>
       </div>
     </div>

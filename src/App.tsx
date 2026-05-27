@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import Stepper from './components/Stepper';
-import ImportStep from './components/ImportStep';
-import TimestampMappingStep from './components/TimestampMappingStep';
+import ImportPackageStep from './components/ImportPackageStep';
+import ImportReviewStep from './components/ImportReviewStep';
+import TranscriptionStep from './components/TranscriptionStep';
 import MergePreviewStep from './components/MergePreviewStep';
-import AnalysisConfigStep from './components/AnalysisConfigStep';
+import AnalysisChoiceStep from './components/AnalysisChoiceStep';
 import AnalysisDashboardStep from './components/AnalysisDashboardStep';
 import ExportStep from './components/ExportStep';
 
@@ -15,7 +16,6 @@ import {
   AnalysisResult,
   MarkerCategory,
 } from './types';
-import { runAnalysis } from './lib/mockServices';
 
 const defaultCategories: MarkerCategory[] = [
   { id: 'mc-coop', label: 'Kooperation', keywords: ['gemeinsam', 'zusammen', 'helfen', 'unterstützen', 'kooperation', 'einig'], colorToken: '#00cfcc' },
@@ -24,18 +24,19 @@ const defaultCategories: MarkerCategory[] = [
 ];
 
 export default function App() {
-  // App states
   const [currentStep, setCurrentStep] = useState(1);
   const [maxUnlockedStep, setMaxUnlockedStep] = useState(1);
   
+  const [sessionId, setSessionId] = useState("");
+  const [classifiedManifest, setClassifiedManifest] = useState<any[]>([]);
   const [chatFile, setChatFile] = useState<{ name: string; content: string } | null>(null);
-  const [audioItems, setAudioItems] = useState<AudioFileItem[]>([]);
+  const [audioItems, setAudioItems] = useState<any[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [mergedDocument, setMergedDocument] = useState<MergedChatDocument | null>(null);
   
   const [analysisConfig, setAnalysisConfig] = useState<AnalysisConfig>({
-    mode: 'relationship_analysis',
-    topicFocus: 'Teamdynamik & Kollaboration',
+    mode: 'semiotic_analysis',
+    topicFocus: 'Beziehungsdynamiken & Supervision',
     markerCategories: defaultCategories,
     depth: 'balanced',
     includeEvidenceQuotes: true,
@@ -45,46 +46,62 @@ export default function App() {
   });
 
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
 
-  // Auto unlock logic based on filled values
+  // Hook chat messages state when chatFile is loaded
   useEffect(() => {
-    let targetUnlocked = 1;
-    
-    // Step 2 unlocked if chat file and some valid audio documents are present
-    if (chatFile !== null && audioItems.length > 0) {
-      targetUnlocked = 2;
+    if (chatFile) {
+      // Fast parsing helper on client state to prepare items
+      const lines = chatFile.content.split('\n');
+      const messages: ChatMessage[] = [];
+      
+      lines.forEach((line, idx) => {
+        // match date pattern i.e. [29.06.25, 13:02:00] Zoe: Hey Ben!
+        const match = line.match(/^\[([^\]]+)\]\s*([^:]+):\s*(.*)$/);
+        if (match) {
+          messages.push({
+            id: `msg-${idx}-${Date.now()}`,
+            timestamp: new Date().toISOString(), // stub correctly sorted
+            sender: match[2].trim(),
+            text: match[3].trim(),
+            type: "text",
+            source: { kind: "whatsapp_export", fileName: chatFile.name }
+          });
+        }
+      });
+      setChatMessages(messages);
     }
+  }, [chatFile]);
 
-    // Step 3 unlocked if map step is traversed or audio state is prepared
-    if (chatFile !== null && audioItems.length > 0 && audioItems.every(a => a.status === 'ready' || a.status === 'transcripts' || a.status === 'transcribed')) {
-      targetUnlocked = 3;
+  // Unlocking parameters
+  useEffect(() => {
+    let unlocked = 1;
+    if (chatFile) {
+      unlocked = 2; // Can review manifest
     }
-
-    // Step 4 unlocked if merge document completed
-    if (mergedDocument !== null) {
-      targetUnlocked = 4;
+    if (chatFile && audioItems.length > 0) {
+      unlocked = 3; // Can transcribe
     }
-
-    // Step 5 unlocked if analysis results generated
-    if (analysisResult !== null) {
-      targetUnlocked = 5;
+    const transCompleted = audioItems.length > 0 && audioItems.every(i => i.status === "transcribed");
+    if (chatFile && transCompleted) {
+      unlocked = 4; // Can preview merge
     }
-
-    // Step 6 unlocked once analysis results are generated
-    if (analysisResult !== null) {
-      targetUnlocked = 6;
+    if (mergedDocument) {
+      unlocked = 5; // Can select analysis
     }
+    if (analysisResult) {
+      unlocked = 6; // Can view report
+    }
+    if (analysisResult && currentStep >= 6) {
+      unlocked = 7; // Final Export
+    }
+    setMaxUnlockedStep(prev => Math.max(prev, unlocked));
+  }, [chatFile, audioItems, mergedDocument, analysisResult, currentStep]);
 
-    setMaxUnlockedStep(prev => Math.max(prev, targetUnlocked));
-  }, [chatFile, audioItems, mergedDocument, analysisResult]);
-
-  // Action flow helpers
   const handleNext = () => {
-    const nextStep = currentStep + 1;
-    setCurrentStep(nextStep);
-    setMaxUnlockedStep(prev => Math.max(prev, nextStep));
+    const next = currentStep + 1;
+    setCurrentStep(next);
+    setMaxUnlockedStep(prev => Math.max(prev, next));
   };
 
   const handlePrev = () => {
@@ -97,31 +114,11 @@ export default function App() {
     }
   };
 
-  // Perform mock evaluation
-  const handlePerformAnalysis = () => {
-    if (!mergedDocument) return;
-    setIsProcessing(true);
-    setGlobalError(null);
-
-    // Simulate 1.5s psychodynamic computational mapping
-    setTimeout(() => {
-      try {
-        const result = runAnalysis(mergedDocument, analysisConfig);
-        setAnalysisResult(result);
-        setIsProcessing(false);
-        setCurrentStep(5); // Go directly to Dashboard
-        setMaxUnlockedStep(prev => Math.max(prev, 5));
-      } catch (err: any) {
-        setGlobalError("Fehler bei der Syntheseberechnung. Bitte wähle eine andere Marker-Kombination.");
-        setIsProcessing(false);
-      }
-    }, 1500);
-  };
-
-  // Full app workflow reset
   const handleResetWorkflow = () => {
     setCurrentStep(1);
     setMaxUnlockedStep(1);
+    setSessionId("");
+    setClassifiedManifest([]);
     setChatFile(null);
     setAudioItems([]);
     setChatMessages([]);
@@ -133,7 +130,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[var(--color-canvas)] text-[var(--color-text-primary)] font-sans antialiased p-4 md:p-8 selection:bg-[var(--color-primary)]/20">
       
-      {/* Title block */}
+      {/* Brand Title */}
       <h1 className="text-3xl font-black text-center text-[var(--color-text-primary)] mb-10 tracking-tight flex items-center justify-center space-x-2">
         <span className="bg-gradient-to-r from-[var(--color-primary)] to-cyan-500 bg-clip-text text-transparent">
           WordThread
@@ -141,7 +138,7 @@ export default function App() {
         <span className="font-light text-gray-400">| Omni-Analyzer</span>
       </h1>
 
-      {/* Stepper with click-to-nav locked parameters */}
+      {/* 7-Step Stepper Component */}
       <Stepper 
         currentStep={currentStep} 
         maxUnlockedStep={maxUnlockedStep} 
@@ -155,34 +152,45 @@ export default function App() {
         </div>
       )}
 
-      {/* Primary Workspace */}
+      {/* Active Workspace */}
       <main className="max-w-5xl mx-auto mt-6 bg-white/40 p-1 rounded-[40px] shadow-sm">
         {currentStep === 1 && (
-          <ImportStep 
+          <ImportPackageStep 
             chatFile={chatFile}
             audioItems={audioItems}
             setChatFile={setChatFile}
             setAudioItems={setAudioItems}
             setChatMessages={setChatMessages}
             onNext={handleNext}
+            setSessionId={setSessionId}
+            setClassifiedManifest={setClassifiedManifest}
           />
         )}
 
         {currentStep === 2 && (
-          <TimestampMappingStep 
+          <ImportReviewStep 
+            classifiedManifest={classifiedManifest}
             audioItems={audioItems}
-            chatMessages={chatMessages}
-            setAudioItems={setAudioItems}
             onPrev={handlePrev}
             onNext={handleNext}
           />
         )}
 
         {currentStep === 3 && (
+          <TranscriptionStep 
+            sessionId={sessionId}
+            audioItems={audioItems}
+            setAudioItems={setAudioItems}
+            onPrev={handlePrev}
+            onNext={handleNext}
+          />
+        )}
+
+        {currentStep === 4 && (
           <MergePreviewStep 
+            sessionId={sessionId}
             audioItems={audioItems}
             chatMessages={chatMessages}
-            setAudioItems={setAudioItems}
             mergedDocument={mergedDocument}
             setMergedDocument={setMergedDocument}
             onPrev={handlePrev}
@@ -190,25 +198,18 @@ export default function App() {
           />
         )}
 
-        {currentStep === 4 && (
-          <div className="relative">
-            {isProcessing && (
-              <div className="absolute inset-0 bg-white/80 rounded-[40px] z-50 flex flex-col items-center justify-center space-y-4">
-                <div className="w-16 h-16 rounded-full border-4 border-gray-100 border-t-[var(--color-primary)] animate-spin" />
-                <h3 className="font-bold text-lg text-[var(--color-text-primary)]">Berechne psychodynamisches Modell...</h3>
-                <p className="text-xs text-[var(--color-text-secondary)]">Prüfe Wortfelder, kognitive Aktivierung und Kipppunkte...</p>
-              </div>
-            )}
-            <AnalysisConfigStep 
-              config={analysisConfig}
-              setConfig={setAnalysisConfig}
-              onPrev={handlePrev}
-              onNext={handlePerformAnalysis}
-            />
-          </div>
+        {currentStep === 5 && (
+          <AnalysisChoiceStep 
+            mergedDocument={mergedDocument}
+            config={analysisConfig}
+            setConfig={setAnalysisConfig}
+            setAnalysisResult={setAnalysisResult}
+            onPrev={handlePrev}
+            onNext={handleNext}
+          />
         )}
 
-        {currentStep === 5 && analysisResult && (
+        {currentStep === 6 && analysisResult && (
           <AnalysisDashboardStep 
             mergedDocument={mergedDocument!}
             analysisResult={analysisResult}
@@ -217,7 +218,7 @@ export default function App() {
           />
         )}
 
-        {currentStep === 6 && analysisResult && (
+        {currentStep === 7 && analysisResult && (
           <ExportStep 
             mergedDocument={mergedDocument!}
             analysisResult={analysisResult}
@@ -227,9 +228,8 @@ export default function App() {
         )}
       </main>
       
-      {/* Small design footer */}
       <footer className="max-w-5xl mx-auto mt-16 text-center text-[10px] uppercase font-black tracking-widest text-[var(--color-text-secondary)] opacity-40">
-        WordThread Omni-Analyzer • Powered by deep-semantic micro-syntheses
+        WordThread Omni-Analyzer • Powered by deep-semantic semiotic-marker-sense
       </footer>
     </div>
   );

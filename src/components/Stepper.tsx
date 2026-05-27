@@ -9,12 +9,13 @@ type StepperProps = {
 
 export default function Stepper({ currentStep, maxUnlockedStep, onStepChange }: StepperProps) {
   const steps = [
-    { name: 'Import', label: '1. Import' },
-    { name: 'Zeitstempel', label: '2. Zeitstempel' },
-    { name: 'Merge', label: '3. Merge Preview' },
-    { name: 'Analyse', label: '4. Konfiguration' },
-    { name: 'Dashboard', label: '5. Dashboard' },
-    { name: 'Export', label: '6. Export' }
+    { name: 'Import Package', label: '1. Paket-Import' },
+    { name: 'Import Review', label: '2. Überprüfung' },
+    { name: 'Transcription', label: '3. Transkription' },
+    { name: 'Merge Preview', label: '4. Zusammenführung' },
+    { name: 'Analysis Choice', label: '5. Analysewahl' },
+    { name: 'Dashboard', label: '6. Dashboard' },
+    { name: 'Final Export', label: '7. Finaler Export' }
   ];
   
   return (
