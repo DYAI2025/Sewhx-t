@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+@theme {
+  --color-canvas: #f7f7f3;
+  --color-surface: #ffffff;
+  --color-primary: #00cfcc;
+  --color-text-primary: #252833;
+  --color-text-secondary: #8a8f9c;
+}
+
+@layer base {
+  body {
+    @apply bg-[var(--color-canvas)] text-[var(--color-text-primary)];
+  }
+}
+
+/* Claymorphism shadow utility */
+.clay-card {
+  box-shadow: 8px 8px 16px #e0e0dc, -8px -8px 16px #ffffff;
+}
+
+.clay-button {
+    box-shadow: 4px 4px 8px #e0e0dc, -4px -4px 8px #ffffff;
+}
+

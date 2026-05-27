@@ -1,0 +1,6 @@
+{
+  "name": "WordThread Omni-Analyzer",
+  "description": "A modular frontend UI for merging and analyzing WhatsApp chat exports and audio transcripts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
